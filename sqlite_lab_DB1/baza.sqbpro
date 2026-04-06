@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="C:/Users/ASUS/Desktop/таблиц в SQLite/baza.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="1278"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="employees" custom_title="0" dock_id="2" table="4,9:mainemployees"/><dock_state state="000000ff00000000fd00000001000000020000045a0000031ffc0100000002fb000000160064006f0063006b00420072006f007700730065003101000000000000045a0000000000000000fb000000160064006f0063006b00420072006f007700730065003201000000000000045a0000012e00ffffff000002790000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="employees" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="35"/><column index="2" value="79"/><column index="3" value="63"/><column index="4" value="74"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="1.sql" filename="C:/Users/ASUS/Desktop/таблиц в SQLite/1.sql">-- Reference to file &quot;C:/Users/ASUS/Desktop/таблиц в SQLite/1.sql&quot; (not supported by this version) --</sql><sql name="SQL 2*">-- 1. Общее количество сотрудников
+SELECT COUNT(*) FROM employees;
+
+-- 2. Общее количество должностей
+SELECT COUNT(*) FROM job_titles;
+
+-- 3. Максимальный ID сотрудника
+SELECT MAX(id) FROM employees;
+
+-- 4. Сумма ID должностей
+SELECT SUM(id_job_title) FROM job_titles;
+
+-- 5. Средний ID сотрудников
+SELECT AVG(id) FROM employees;</sql><sql name="SQL 9*">-- 1. Количество сотрудников по должностям
+SELECT 
+    jt.name AS должность,
+    COUNT(e.id) AS количество
+FROM job_titles jt
+LEFT JOIN employees e ON jt.id_job_title = e.id_job_title
+GROUP BY jt.id_job_title, jt.name;
+
+-- 2. Статистика ID по должностям
+SELECT 
+    jt.name AS должность,
+    MIN(e.id) AS минимальный_id,
+    MAX(e.id) AS максимальный_id
+FROM job_titles jt
+LEFT JOIN employees e ON jt.id_job_title = e.id_job_title
+GROUP BY jt.id_job_title, jt.name;
+
+-- 3. Список сотрудников по должностям
+SELECT 
+    jt.name AS должность,
+    GROUP_CONCAT(e.surname || ' ' || e.name) AS сотрудники
+FROM job_titles jt
+LEFT JOIN employees e ON jt.id_job_title = e.id_job_title
+GROUP BY jt.id_job_title, jt.name;</sql><sql name="SQL 10*">-- 1. Все сотрудники с названиями должностей
+SELECT 
+    e.id,
+    e.surname,
+    e.name,
+    jt.name AS должность
+FROM employees e
+JOIN job_titles jt ON e.id_job_title = jt.id_job_title
+ORDER BY jt.name, e.surname;
+
+-- 2. Только разработчики и аналитики
+SELECT 
+    e.surname,
+    e.name,
+    jt.name AS должность
+FROM employees e
+JOIN job_titles jt ON e.id_job_title = jt.id_job_title
+WHERE jt.name IN ('Разработчик', 'Аналитик')
+ORDER BY jt.name, e.surname;
+
+-- 3. Должности без сотрудников
+SELECT 
+    jt.name AS должность
+FROM job_titles jt
+LEFT JOIN employees e ON jt.id_job_title = e.id_job_title
+WHERE e.id IS NULL;</sql><current_tab id="3"/></tab_sql></sqlb_project>
