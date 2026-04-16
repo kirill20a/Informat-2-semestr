@@ -1,0 +1,5 @@
+﻿  LineList.cpp
+  main.cpp
+C:\Rabota\Microsoft_\Iosif_cherez_LineList\Iosif_cherez_LineList\main.cpp(64,13): warning C4566: символ, представленный универсальным именем символа "\u2705", невозможно представить в текущей кодовой странице (1251)
+  Создание кода...
+  Iosif_cherez_LineList.vcxproj -> C:\Rabota\Microsoft_\Iosif_cherez_LineList\x64\Debug\Iosif_cherez_LineList.exe

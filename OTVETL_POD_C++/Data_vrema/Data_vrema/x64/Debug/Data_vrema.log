@@ -1,0 +1,6 @@
+﻿  DateTime.cpp
+C:\Rabota\Microsoft_\Data_vrema\Data_vrema\DateTime.cpp(156,16): warning C4244: =: преобразование "__int64" в "int", возможна потеря данных
+C:\Rabota\Microsoft_\Data_vrema\Data_vrema\DateTime.cpp(279,29): warning C4244: =: преобразование "__int64" в "int", возможна потеря данных
+  Luna.cpp
+  Создание кода...
+  Data_vrema.vcxproj -> C:\Rabota\Microsoft_\Data_vrema\x64\Debug\Data_vrema.exe
