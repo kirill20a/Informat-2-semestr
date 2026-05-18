@@ -1,4 +1,4 @@
-#include "Maze.h"
+﻿#include "Maze.h"
 #include <fstream>
 #include <queue>
 #include <algorithm>
@@ -45,6 +45,7 @@ std::ostream& operator<<(std::ostream& out, const Point& p) {
 // ---------- Maze ----------
 Maze::Maze() : width(0), height(0), rowSize(0) {}
 
+// Загрузка BMP (только 24‑бит, без палитры)
 bool Maze::readBMP(const std::string& filename) {
     std::ifstream fin(filename, std::ios::binary);
     if (!fin) return false;
@@ -69,11 +70,11 @@ bool Maze::readBMP(const std::string& filename) {
     }
     return true;
 }
-
+//Сохранение BMP с путем
 bool Maze::writeBMP(const std::string& filename) const {
     if (pixels.empty()) return false;
 
-    std::ifstream fin("���_��������.bmp", std::ios::binary);
+    std::ifstream fin("ДНК_Лабиринт.bmp", std::ios::binary);
     if (!fin) return false;
 
     BMPHeader header;
@@ -96,6 +97,7 @@ bool Maze::writeBMP(const std::string& filename) const {
     }
     return true;
 }
+// Поиск старта и финиша
 void Maze::findStartEnd() {
     std::vector<Point> colored;
     for (int y = 0; y < height; ++y) {
@@ -114,7 +116,7 @@ void Maze::findStartEnd() {
 
     if (colored.size() < 2) return;
 
-    // ���� ��� ����� �������� �����
+    // ищем две самые удалённые точки
     double maxDist = -1;
     for (size_t i = 0; i < colored.size(); ++i) {
         for (size_t j = i + 1; j < colored.size(); ++j) {
@@ -129,7 +131,7 @@ void Maze::findStartEnd() {
         }
     }
 }
-
+// Построение карты проходимости: 1 — можно идти, 0 — стена
 void Maze::buildGrid(std::vector<std::vector<int>>& grid, int brightnessThreshold) const {
     grid.assign(height, std::vector<int>(width, 0));
     for (int y = 0; y < height; ++y) {
@@ -145,7 +147,7 @@ void Maze::buildGrid(std::vector<std::vector<int>>& grid, int brightnessThreshol
     grid[start.y][start.x] = 1;
     grid[end.y][end.x] = 1;
 }
-
+// Волновой алгоритм Ли (BFS)
 bool Maze::waveAlgo(int brightnessThreshold) {
     std::vector<std::vector<int>> grid;
     buildGrid(grid, brightnessThreshold);
@@ -194,7 +196,7 @@ bool Maze::waveAlgo(int brightnessThreshold) {
     std::reverse(path.begin(), path.end());
     return true;
 }
-
+// Рисование пути синим цветом
 void Maze::drawPath(int thickness) {
     for (const auto& p : path) {
         for (int dy = -thickness; dy <= thickness; ++dy) {
@@ -229,9 +231,9 @@ bool Maze::save(const std::string& filename) const {
 }
 
 void Maze::printInfo() const {
-    std::cout << "�����: " << start << std::endl;
-    std::cout << "�����: " << end << std::endl;
-    std::cout << "����� ����: " << path.size() << std::endl;
+    std::cout << "Старт: " << start << std::endl;
+    std::cout << "Финиш: " << end << std::endl;
+    std::cout << "Длина пути: " << path.size() << std::endl;
 }
 
 bool Maze::operator!() const {
