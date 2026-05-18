@@ -21,7 +21,9 @@ def init_db():
         -- Таблица должностей
         CREATE TABLE IF NOT EXISTS job_titles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL
+            name TEXT NOT NULL,
+            salary_base REAL DEFAULT 0,
+            bonus_percent REAL DEFAULT 0
         );
 
         -- Таблица сотрудников
@@ -98,8 +100,12 @@ def init_db():
             INSERT INTO tables_cafe (table_number, capacity) VALUES 
                 (1, 2), (2, 2), (3, 4), (4, 4), (5, 4),
                 (6, 6), (7, 6), (8, 2), (9, 4), (10, 4);
-            INSERT INTO job_titles (name) VALUES 
-                ('Бариста'), ('Официант'), ('Повар'), ('Администратор'), ('Управляющий');
+            INSERT INTO job_titles (name, salary_base, bonus_percent) VALUES 
+                ('Бариста', 30000, 3),
+                ('Официант', 25000, 5),
+                ('Повар', 42000, 2),
+                ('Администратор', 45000, 1),
+                ('Управляющий', 70000, 0);
             
             INSERT INTO employees (name, surname, id_job_title) VALUES 
                 ('Иван', 'Иванов', 2),
@@ -155,6 +161,148 @@ def init_db():
 
 # GUI приложение для Кафе
 class CafeApp:
+    def show_staff_window(self):
+        staff = tk.Toplevel(self.root)
+        staff.title("👥 Персонал и зарплата")
+        staff.geometry("850x550")
+        staff.configure(bg='#fafafa')
+        
+        tk.Label(staff, text="Персонал и расчёт зарплаты", font=('Arial', 14, 'bold'), 
+                 bg='#fafafa').pack(pady=10)
+        
+        # Выбор месяца
+        f1 = tk.Frame(staff, bg='#fafafa')
+        f1.pack(pady=5)
+        tk.Label(f1, text="Месяц (ГГГГ-ММ):", bg='#fafafa', font=('Arial', 10)).pack(side='left')
+        month_entry = ttk.Entry(f1, width=10, font=('Arial', 10))
+        month_entry.pack(side='left', padx=10)
+        month_entry.insert(0, datetime.now().strftime('%Y-%m'))
+        
+        # Таблица
+        tree_frame = tk.Frame(staff, bg='#fafafa')
+        tree_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        scrollbar = ttk.Scrollbar(tree_frame)
+        scrollbar.pack(side='right', fill='y')
+        
+        staff_tree = ttk.Treeview(tree_frame, 
+                                   columns=('ФИО', 'Должность', 'Оклад', '%', 'База', 'Премия', 'Итого'),
+                                   show='headings', height=12, yscrollcommand=scrollbar.set)
+        staff_tree.pack(fill='both', expand=True)
+        scrollbar.config(command=staff_tree.yview)
+        
+        staff_tree.heading('ФИО', text='ФИО')
+        staff_tree.heading('Должность', text='Должность')
+        staff_tree.heading('Оклад', text='Оклад (руб)')
+        staff_tree.heading('%', text='%')
+        staff_tree.heading('База', text='База для премии')
+        staff_tree.heading('Премия', text='Премия (руб)')
+        staff_tree.heading('Итого', text='Итого (руб)')
+        
+        staff_tree.column('ФИО', width=200)
+        staff_tree.column('Должность', width=130)
+        staff_tree.column('Оклад', width=100, anchor='center')
+        staff_tree.column('%', width=50, anchor='center')
+        staff_tree.column('База', width=150, anchor='center')
+        staff_tree.column('Премия', width=120, anchor='center')
+        staff_tree.column('Итого', width=120, anchor='center')
+        
+        total_label = tk.Label(staff, text="", font=('Arial', 11, 'bold'), bg='#fafafa', fg='#4a7c59')
+        total_label.pack(pady=5)
+        
+        def refresh_staff():
+            for item in staff_tree.get_children():
+                staff_tree.delete(item)
+            
+            month_val = month_entry.get()
+            
+            # Считаем общую выручку кафе за месяц
+            cursor.execute('''
+                SELECT COALESCE(SUM(m.price * oi.quantity), 0)
+                FROM orders o
+                JOIN order_items oi ON o.id_order = oi.id_order
+                JOIN menu m ON oi.id_dish = m.id_dish
+                WHERE strftime('%Y-%m', o.created_at) = ?
+                  AND o.status IN ('Оплачен', 'Выполнен')
+            ''', (month_val,))
+            total_revenue = cursor.fetchone()[0]
+            
+            # Считаем выручку бара (категория "Напитки")
+            cursor.execute('''
+                SELECT COALESCE(SUM(m.price * oi.quantity), 0)
+                FROM orders o
+                JOIN order_items oi ON o.id_order = oi.id_order
+                JOIN menu m ON oi.id_dish = m.id_dish
+                JOIN categories c ON m.id_category = c.id_category
+                WHERE strftime('%Y-%m', o.created_at) = ?
+                  AND o.status IN ('Оплачен', 'Выполнен')
+                  AND c.name_category = 'Напитки'
+            ''', (month_val,))
+            bar_revenue = cursor.fetchone()[0]
+            
+            # Считаем выручку кухни (все категории кроме "Напитки")
+            kitchen_revenue = total_revenue - bar_revenue
+            
+            total_payroll = 0
+            
+            cursor.execute('''
+                SELECT e.id, e.name || ' ' || e.surname, j.name, j.salary_base, j.bonus_percent
+                FROM employees e
+                JOIN job_titles j ON e.id_job_title = j.id
+                ORDER BY j.name, e.name
+            ''')
+            
+            for emp_id, emp_name, pos, salary, bonus_pct in cursor.fetchall():
+                salary = salary or 0
+                bonus_pct = bonus_pct or 0
+                
+                if pos == 'Официант':
+                    # Личная выручка официанта
+                    cursor.execute('''
+                        SELECT COALESCE(SUM(m.price * oi.quantity), 0)
+                        FROM orders o
+                        JOIN order_items oi ON o.id_order = oi.id_order
+                        JOIN menu m ON oi.id_dish = m.id_dish
+                        WHERE o.id_employee = ?
+                          AND strftime('%Y-%m', o.created_at) = ?
+                          AND o.status IN ('Оплачен', 'Выполнен')
+                    ''', (emp_id, month_val))
+                    base = cursor.fetchone()[0]
+                    base_text = f"Личная: {base:.2f} ₽"
+                    
+                elif pos == 'Бариста' or pos == 'Бариста / Бармен':
+                    # Выручка бара делится на всех бариста
+                    cursor.execute("SELECT COUNT(*) FROM employees e JOIN job_titles j ON e.id_job_title = j.id WHERE j.name LIKE '%Бариста%' OR j.name LIKE '%Бармен%'")
+                    bar_count = cursor.fetchone()[0] or 1
+                    base = bar_revenue / bar_count
+                    base_text = f"Бар: {bar_revenue:.2f} ÷ {bar_count}"
+                    
+                elif pos == 'Повар' or pos == 'Шеф-повар':
+                    # Выручка кухни делится на всех поваров
+                    cursor.execute("SELECT COUNT(*) FROM employees e JOIN job_titles j ON e.id_job_title = j.id WHERE j.name LIKE '%Повар%' OR j.name LIKE '%Шеф%'")
+                    cook_count = cursor.fetchone()[0] or 1
+                    base = kitchen_revenue / cook_count
+                    base_text = f"Кухня: {kitchen_revenue:.2f} ÷ {cook_count}"
+                    
+                else:
+                    # Администрация — от общей выручки
+                    cursor.execute("SELECT COUNT(*) FROM employees e JOIN job_titles j ON e.id_job_title = j.id WHERE j.name IN ('Администратор', 'Администратор зала', 'Управляющий')")
+                    admin_count = cursor.fetchone()[0] or 1
+                    base = total_revenue / admin_count
+                    base_text = f"Общая: {total_revenue:.2f} ÷ {admin_count}"
+                
+                bonus = base * bonus_pct / 100
+                total = salary + bonus
+                total_payroll += total
+                
+                staff_tree.insert('', 'end', 
+                    values=(emp_name, pos, f"{salary:.2f}", f"{bonus_pct}%",
+                            base_text, f"{bonus:.2f}", f"{total:.2f}"))
+            
+            total_label.config(text=f"Общий фонд оплаты труда за {month_val}: {total_payroll:.2f} ₽ | Выручка кафе: {total_revenue:.2f} ₽")
+        
+        ttk.Button(staff, text="🔄 Рассчитать", command=refresh_staff).pack(pady=5)
+        refresh_staff()
     def refresh_top5(self, text_widget):
         text_widget.delete(1.0, tk.END)
         cursor.execute('''
@@ -292,7 +440,8 @@ class CafeApp:
                    command=self.show_reports_window).pack(side='left', padx=5)
         ttk.Button(windows_frame, text="📋 Все заказы", 
                    command=self.show_orders_window).pack(side='left', padx=5)
-    
+        ttk.Button(windows_frame, text="👥 Персонал и ЗП", 
+                    command=self.show_staff_window).pack(side='left', padx=5)
     # ================================================================
     #  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ЗАГРУЗКИ ДАННЫХ
     # ================================================================
@@ -763,25 +912,49 @@ class CafeApp:
                 FROM orders o
                 JOIN order_items oi ON o.id_order = oi.id_order
                 JOIN menu m ON oi.id_dish = m.id_dish
-                WHERE DATE(o.created_at) = ? AND o.status IN ('Оплачен', 'Выполнен')            ''', (date_val,))
+                WHERE DATE(o.created_at) = ? AND o.status IN ('Оплачен', 'Выполнен')
+            ''', (date_val,))
             rev, checks = cursor.fetchone()
             
             text_revenue.insert(tk.END, f"=== ОТЧЁТ ПО ВЫРУЧКЕ ЗА {date_val} ===\n\n")
             text_revenue.insert(tk.END, f"Закрытых чеков: {checks or 0}\n")
             text_revenue.insert(tk.END, f"Общая выручка: {rev or 0:.2f} ₽\n\n")
             
+            # Выручка по официантам
+            text_revenue.insert(tk.END, "─" * 50 + "\n")
+            text_revenue.insert(tk.END, "ВЫРУЧКА ПО ОФИЦИАНТАМ:\n\n")
+            
+            cursor.execute('''
+                SELECT e.name || ' ' || e.surname, 
+                       COUNT(DISTINCT o.id_order) as checks,
+                       SUM(m.price * oi.quantity) as revenue
+                FROM orders o
+                JOIN employees e ON o.id_employee = e.id
+                JOIN order_items oi ON o.id_order = oi.id_order
+                JOIN menu m ON oi.id_dish = m.id_dish
+                WHERE DATE(o.created_at) = ? AND o.status IN ('Оплачен', 'Выполнен')
+                GROUP BY e.id
+                ORDER BY revenue DESC
+            ''', (date_val,))
+            
+            for name, ch, rev_sum in cursor.fetchall():
+                text_revenue.insert(tk.END, f"  • {name}: {ch} чеков, {rev_sum:.2f} ₽\n")
+            
+            # Проданные блюда
+            text_revenue.insert(tk.END, "\n" + "─" * 50 + "\n")
+            text_revenue.insert(tk.END, "ПРОДАННЫЕ БЛЮДА:\n\n")
+            
             cursor.execute('''
                 SELECT m.name_of_dish, SUM(oi.quantity), SUM(m.price * oi.quantity)
                 FROM order_items oi
                 JOIN orders o ON oi.id_order = o.id_order
                 JOIN menu m ON oi.id_dish = m.id_dish
-                WHERE DATE(o.created_at) = ? AND o.status IN ('Оплачен', 'Выполнен')                GROUP BY m.id_dish ORDER BY SUM(oi.quantity) DESC
+                WHERE DATE(o.created_at) = ? AND o.status IN ('Оплачен', 'Выполнен')
+                GROUP BY m.id_dish ORDER BY SUM(oi.quantity) DESC
             ''', (date_val,))
             
-            text_revenue.insert(tk.END, "Проданные блюда:\n")
             for name, qty, s in cursor.fetchall():
                 text_revenue.insert(tk.END, f"  • {name}: {qty} порц. на {s:.2f} ₽\n")
-        
         ttk.Button(tab1, text="📈 Показать", command=show_revenue).pack(pady=5)
         
         # Вкладка "ТОП-5"
@@ -813,31 +986,38 @@ class CafeApp:
     def show_orders_window(self):
         orders_win = tk.Toplevel(self.root)
         orders_win.title("📋 Все заказы")
-        orders_win.geometry("800x400")
+        orders_win.geometry("900x400")
         
-        tree = ttk.Treeview(orders_win, columns=('ID', 'Стол', 'Дата', 'Статус'), 
-                            show='headings', height=15)
+        tree = ttk.Treeview(orders_win, 
+                           columns=('ID', 'Стол', 'Официант', 'Дата', 'Статус'), 
+                           show='headings', height=15)
         tree.pack(fill='both', expand=True, padx=10, pady=10)
         
         tree.heading('ID', text='№ Заказа')
         tree.heading('Стол', text='Стол')
+        tree.heading('Официант', text='Официант')
         tree.heading('Дата', text='Дата и время')
         tree.heading('Статус', text='Статус')
         
         tree.column('ID', width=80, anchor='center')
         tree.column('Стол', width=60, anchor='center')
-        tree.column('Дата', width=200, anchor='center')
+        tree.column('Официант', width=200)
+        tree.column('Дата', width=180, anchor='center')
         tree.column('Статус', width=100, anchor='center')
         
         def refresh_orders():
             for item in tree.get_children():
                 tree.delete(item)
             cursor.execute('''
-                SELECT id_order, table_num, created_at, status 
-                FROM orders ORDER BY id_order DESC LIMIT 50
+                SELECT o.id_order, o.table_num, e.name || ' ' || e.surname, 
+                       o.created_at, o.status 
+                FROM orders o
+                JOIN employees e ON o.id_employee = e.id
+                ORDER BY o.id_order DESC LIMIT 50
             ''')
             for row in cursor.fetchall():
                 tree.insert('', 'end', values=row)
+        
         ttk.Button(orders_win, text="🔄 Обновить", command=refresh_orders).pack(pady=5)
         refresh_orders()
 # ========== ЗАПУСК ==========
