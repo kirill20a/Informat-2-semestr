@@ -1,0 +1,31 @@
+# Создать файл .gitignore с правильными правилами
+cat > .gitignore << 'EOF'
+# Visual Studio / C++
+.vs/
+x64/
+Debug/
+Release/
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.ipch
+*.db
+*.opendb
+*.suo
+*.user
+*.aps
+*.tlog
+*.idb
+
+# Python
+__pycache__/
+*.pyc
+
+# SQLite
+*.db
+
+# Временные файлы
+*.log
+*.tmp
+EOF

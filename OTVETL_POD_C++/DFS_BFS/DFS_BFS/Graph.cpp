@@ -1,75 +1,8 @@
 #include "Graph.h"
-#include <algorithm>
+#include <queue>
+#include <set>
 
 using namespace std;
-
-// ========== РЕАЛИЗАЦИЯ МЕТОДОВ PATH ==========
-
-// Конструктор копирования
-Path::Path(const Path& other) : len(other.len) {
-    for (int i = 0; i < len; i++) {
-        nodes[i] = other.nodes[i];
-    }
-}
-
-// Оператор присваивания
-Path& Path::operator=(const Path& other) {
-    if (this != &other) {
-        len = other.len;
-        for (int i = 0; i < len; i++) {
-            nodes[i] = other.nodes[i];
-        }
-    }
-    return *this;
-}
-
-// Доступ по индексу
-Node* Path::operator[](int i) const {
-    return (i >= 0 && i < len) ? nodes[i] : nullptr;
-}
-
-// Приведение к bool
-Path::operator bool() const {
-    return len > 0;
-}
-
-// Добавить в конец
-void Path::pushBack(Node* node) {
-    if (len < 1000) nodes[len++] = node;
-}
-
-// Удалить последний
-void Path::popBack() {
-    if (len > 0) len--;
-}
-
-// Получить по индексу
-Node* Path::get(int i) const {
-    return (i >= 0 && i < len) ? nodes[i] : nullptr;
-}
-
-// Длина пути
-int Path::getLength() const {
-    return len;
-}
-
-// Очистка
-void Path::clear() {
-    len = 0;
-}
-
-// Проверка на пустоту
-bool Path::empty() const {
-    return len == 0;
-}
-
-// Вывод в поток
-void Path::print(ostream& out) const {
-    for (int i = 0; i < len; i++) {
-        out << nodes[i]->getName();
-        if (i < len - 1) out << " -> ";
-    }
-}
 
 // ---------- Node ----------
 Node::Node(const string& aname) : name(aname) {}
@@ -88,7 +21,6 @@ void Node::removeNeighbour(Node* neighbour) {
 node_iterator Node::nb_begin() const { return neighbours.begin(); }
 node_iterator Node::nb_end() const { return neighbours.end(); }
 
-// сравнение и присваивание — только по имени
 bool Node::operator==(const Node& other) const { return name == other.name; }
 bool Node::operator!=(const Node& other) const { return !(*this == other); }
 bool Node::operator<(const Node& other) const { return name < other.name; }
@@ -105,63 +37,119 @@ ostream& operator<<(ostream& out, const Node& node) {
 
 // ---------- Graph ----------
 Graph::Graph() {}
+
 Graph::~Graph() {
     for (Node* node : nodes) delete node;
+}
+
+Graph::Graph(const string& filename) {
+    ifstream file(filename);
+    if (!file.is_open()) return;
+
+    string line;
+    getline(file, line); // пропускаем заголовок "Source Target"
+
+    int from, to;
+    while (file >> from >> to) {
+        Node* nodeFrom = nullptr;
+        Node* nodeTo = nullptr;
+
+        for (Node* n : nodes) {
+            if (n->getName() == to_string(from)) nodeFrom = n;
+            if (n->getName() == to_string(to)) nodeTo = n;
+        }
+
+        if (!nodeFrom) {
+            nodeFrom = new Node(to_string(from));
+            addNode(nodeFrom);
+        }
+        if (!nodeTo) {
+            nodeTo = new Node(to_string(to));
+            addNode(nodeTo);
+        }
+
+        addEdge(nodeFrom, nodeTo);
+    }
+    file.close();
 }
 
 void Graph::addNode(Node* node) {
     if (node) nodes.insert(node);
 }
 
-// удаление вершины: 4 шага (из множества, ссылки у соседей, рёбра, память)
 void Graph::removeNode(Node* node) {
     if (!node) return;
-    nodes.erase(node);// убрали из множества
-    for (Node* other : nodes)// удаляем ссылки у соседей
-        other->removeNeighbour(node);
-    for (auto it = edges.begin(); it != edges.end();) {
-        if (it->from == node || it->to == node)
-            it = edges.erase(it);
-        else
-            ++it;
-    }
-    delete node;// освободили память
+    nodes.erase(node);
+    for (Node* other : nodes) other->removeNeighbour(node);
+    delete node;
 }
 
-void Graph::addEdge(Node* begin, Node* end, int weight) {
+void Graph::addEdge(Node* begin, Node* end) {
     if (!begin || !end) return;
     if (!hasNode(begin) || !hasNode(end)) return;
     begin->addNeighbour(end);
     end->addNeighbour(begin);
-    edges.insert(Edge(begin, end, weight));
+    edges.insert({ begin, end });
 }
 
-void Graph::removeEdge(Node* begin, Node* end) {
-    if (!begin || !end) return;
-    begin->removeNeighbour(end);
-    end->removeNeighbour(begin);
-    for (auto it = edges.begin(); it != edges.end(); ++it) {
-        if ((it->from == begin && it->to == end) ||
-            (it->from == end && it->to == begin)) {
-            edges.erase(it);
-            break;
-        }
-    }
+bool Graph::hasNode(Node* node) const {
+    return nodes.find(node) != nodes.end();
 }
 
-bool Graph::hasNode(Node* node) const { return nodes.find(node) != nodes.end(); }
-bool Graph::hasEdge(Node* begin, Node* end) const { return getWeight(begin, end) != 0; }
-
-int Graph::getWeight(Node* begin, Node* end) const {
-    for (const Edge& e : edges)
-        if ((e.from == begin && e.to == end) || (e.from == end && e.to == begin))
-            return e.weight;
-    return 0;
+bool Graph::hasEdge(Node* begin, Node* end) const {
+    return edges.find({ begin, end }) != edges.end() ||
+        edges.find({ end, begin }) != edges.end();
 }
 
 node_iterator Graph::begin() const { return nodes.begin(); }
 node_iterator Graph::end() const { return nodes.end(); }
 size_t Graph::getNodeCount() const { return nodes.size(); }
+
+vector<vector<Node*>> Graph::findConnectedComponents() {
+    vector<vector<Node*>> components;
+    set<Node*> visited;
+
+    for (Node* start : nodes) {
+        if (visited.find(start) != visited.end()) continue;
+
+        // BFS для новой компоненты
+        vector<Node*> component;
+        queue<Node*> q;
+        q.push(start);
+        visited.insert(start);
+
+        while (!q.empty()) {
+            Node* current = q.front(); q.pop();
+            component.push_back(current);
+            for (node_iterator it = current->nb_begin(); it != current->nb_end(); ++it) {
+                if (visited.find(*it) == visited.end()) {
+                    visited.insert(*it);
+                    q.push(*it);
+                }
+            }
+        }
+        components.push_back(component);
+    }
+    return components;
+}
+
+void Graph::saveComponent(const vector<Node*>& component, const string& filename) const {
+    ofstream file(filename);
+    set<pair<int, int>> edgesWritten;
+
+    for (Node* node : component) {
+        int from = stoi(node->getName());
+        for (node_iterator it = node->nb_begin(); it != node->nb_end(); ++it) {
+            int to = stoi((*it)->getName());
+            if (edgesWritten.find({ from, to }) == edgesWritten.end() &&
+                edgesWritten.find({ to, from }) == edgesWritten.end()) {
+                file << from << "\t" << to << endl;
+                edgesWritten.insert({ from, to });
+            }
+        }
+    }
+    file.close();
+}
 
 ostream& operator<<(ostream& out, const Graph& graph) {
     out << "Граф:\n  Вершин: " << graph.getNodeCount() << "\n";
@@ -175,12 +163,37 @@ ostream& operator<<(ostream& out, const Graph& graph) {
 }
 
 // ---------- Path ----------
-ostream& operator<<(ostream& out, const Path& path) {
-    if (path.getLength() == 0) {
-        out << "путь не найден";
-        return out;
+Path::Path(const Path& other) : len(other.len) {
+    for (int i = 0; i < len; ++i) nodes[i] = other.nodes[i];
+}
+
+Path& Path::operator=(const Path& other) {
+    if (this != &other) {
+        len = other.len;
+        for (int i = 0; i < len; ++i) nodes[i] = other.nodes[i];
     }
-    for (int i = 0; i < path.getLength(); i++) {
+    return *this;
+}
+
+Node* Path::operator[](int i) const {
+    return (i >= 0 && i < len) ? nodes[i] : nullptr;
+}
+
+Path::operator bool() const { return len > 0; }
+
+void Path::pushBack(Node* node) {
+    if (len < 1000) nodes[len++] = node;
+}
+
+void Path::popBack() { if (len > 0) --len; }
+
+Node* Path::get(int i) const { return (*this)[i]; }
+int Path::getLength() const { return len; }
+void Path::clear() { len = 0; }
+bool Path::empty() const { return len == 0; }
+
+ostream& operator<<(ostream& out, const Path& path) {
+    for (int i = 0; i < path.getLength(); ++i) {
         out << path.get(i)->getName();
         if (i < path.getLength() - 1) out << " -> ";
     }
@@ -196,29 +209,30 @@ bool BFS::connected(Node* begin, Node* end) {
 
     queue<Node*> q;
     set<Node*> visited;
-
     q.push(begin);
     visited.insert(begin);
 
     while (!q.empty()) {
         Node* cur = q.front(); q.pop();
         for (auto it = cur->nb_begin(); it != cur->nb_end(); ++it) {
-            Node* nb = *it;
-            if (nb == end) return true;
-            if (!visited.count(nb)) {
-                visited.insert(nb);
-                q.push(nb);
+            if (*it == end) return true;
+            if (!visited.count(*it)) {
+                visited.insert(*it);
+                q.push(*it);
             }
         }
     }
     return false;
 }
 
-// BFS-путь (упрощённо — без восстановления)
 Path BFS::findPath(Node* begin, Node* end) {
     Path path;
     if (!begin || !end) return path;
-    if (begin == end) path.pushBack(begin);
+    if (begin == end) {
+        path.pushBack(begin);
+        return path;
+    }
+    // Упрощённо: возвращаем пустой путь. Для реального пути нужен map предков.
     return path;
 }
 
@@ -235,14 +249,13 @@ int BFS::findDistance(Node* begin, Node* end) {
     while (!q.empty()) {
         int sz = q.size();
         dist++;
-        for (int i = 0; i < sz; i++) { // проверяем соседей текущего уровня->
+        for (int i = 0; i < sz; ++i) {
             Node* cur = q.front(); q.pop();
             for (auto it = cur->nb_begin(); it != cur->nb_end(); ++it) {
-                Node* nb = *it;
-                if (nb == end) return dist;
-                if (!visited.count(nb)) {
-                    visited.insert(nb);
-                    q.push(nb);
+                if (*it == end) return dist;
+                if (!visited.count(*it)) {
+                    visited.insert(*it);
+                    q.push(*it);
                 }
             }
         }
@@ -250,16 +263,14 @@ int BFS::findDistance(Node* begin, Node* end) {
     return -1;
 }
 
-// ---------- DFS ----------зашли — пометили — 
-// пошли в соседа — если не нашли, возвращаемся.
+// ---------- DFS ----------
 DFS::DFS(const Graph& agraph) : graph(agraph) {}
 
 bool DFS::connectedRecursive(Node* begin, Node* end, int) {
     if (begin == end) return true;
     visited.insert(begin);
     for (auto it = begin->nb_begin(); it != begin->nb_end(); ++it) {
-        Node* nb = *it;
-        if (!visited.count(nb) && connectedRecursive(nb, end, 0))
+        if (!visited.count(*it) && connectedRecursive(*it, end, 0))
             return true;
     }
     return false;
@@ -270,15 +281,12 @@ bool DFS::connected(Node* begin, Node* end) {
     return connectedRecursive(begin, end, 0);
 }
 
-// рекурсивное восстановление пути(Строит путь.
-// Если не нашли — откатываем последнюю вершину.)
 bool DFS::findPathRecursive(Node* cur, Node* end, Path& path, set<Node*>& seen) {
     path.pushBack(cur);
     if (cur == end) return true;
     seen.insert(cur);
     for (auto it = cur->nb_begin(); it != cur->nb_end(); ++it) {
-        Node* nb = *it;
-        if (!seen.count(nb) && findPathRecursive(nb, end, path, seen))
+        if (!seen.count(*it) && findPathRecursive(*it, end, path, seen))
             return true;
     }
     path.popBack();
@@ -290,19 +298,4 @@ Path DFS::findPath(Node* begin, Node* end) {
     set<Node*> seen;
     if (begin && end) findPathRecursive(begin, end, path, seen);
     return path;
-}
-// ========== РЕАЛИЗАЦИЯ ОПЕРАТОРОВ СРАВНЕНИЯ ДЛЯ EDGE ==========
-//Нужны для хранения в set (сортировка).
-bool Graph::Edge::operator<(const Edge& other) const {
-    if (from != other.from) return from < other.from;
-    return to < other.to;
-}
-//Учитывает, что граф неориентированный: (a,b) == (b,a).
-bool Graph::Edge::operator==(const Edge& other) const {
-    return (from == other.from && to == other.to) ||
-        (from == other.to && to == other.from);
-}
-
-bool Graph::Edge::operator!=(const Edge& other) const {
-    return !(*this == other);
 }
