@@ -1,3 +1,3 @@
 ﻿# Informatika-2-semestr
 # Agaev Kirill 14123-ДБ
-# Asanov Denis 14123-ДБ
+
