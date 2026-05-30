@@ -1,10 +1,10 @@
 #include "Graph.h"
-#include <queue>
-#include <set>
+#include <algorithm>
 
 using namespace std;
 
-// ---------- Node ----------
+// ========== NODE ==========
+
 Node::Node(const string& aname) : name(aname) {}
 Node::~Node() {}
 
@@ -35,19 +35,64 @@ ostream& operator<<(ostream& out, const Node& node) {
     return out;
 }
 
-// ---------- Graph ----------
+// ========== GRAPH ==========
+
 Graph::Graph() {}
 
 Graph::~Graph() {
     for (Node* node : nodes) delete node;
 }
+// ========== КОНСТРУКТОР КОПИРОВАНИЯ ==========
+Graph::Graph(const Graph& other) {
+    map<const Node*, Node*> oldToNew;
 
+    // Копируем вершины
+    for (Node* oldNode : other.nodes) {
+        Node* newNode = new Node(oldNode->getName());
+        nodes.insert(newNode);
+        oldToNew[oldNode] = newNode;
+    }
+
+    // Копируем рёбра
+    for (const Edge& e : other.edges) {
+        Node* newFrom = oldToNew[e.from];
+        Node* newTo = oldToNew[e.to];
+        addEdge(newFrom, newTo, e.weight);
+    }
+}
+
+// ========== ОПЕРАТОР ПРИСВАИВАНИЯ ==========
+Graph& Graph::operator=(const Graph& other) {
+    if (this != &other) {
+        // Очищаем текущий граф
+        for (Node* node : nodes) delete node;
+        nodes.clear();
+        edges.clear();
+
+        // Копируем вершины
+        map<const Node*, Node*> oldToNew;
+        for (Node* oldNode : other.nodes) {
+            Node* newNode = new Node(oldNode->getName());
+            nodes.insert(newNode);
+            oldToNew[oldNode] = newNode;
+        }
+
+        // Копируем рёбра
+        for (const Edge& e : other.edges) {
+            Node* newFrom = oldToNew[e.from];
+            Node* newTo = oldToNew[e.to];
+            addEdge(newFrom, newTo, e.weight);
+        }
+    }
+    return *this;
+}
+// Конструктор из файла
 Graph::Graph(const string& filename) {
     ifstream file(filename);
     if (!file.is_open()) return;
 
     string line;
-    getline(file, line); // ���������� ��������� "Source Target"
+    getline(file, line); // пропускаем заголовок
 
     int from, to;
     while (file >> from >> to) {
@@ -81,50 +126,80 @@ void Graph::removeNode(Node* node) {
     if (!node) return;
     nodes.erase(node);
     for (Node* other : nodes) other->removeNeighbour(node);
+    for (auto it = edges.begin(); it != edges.end();) {
+        if (it->from == node || it->to == node) it = edges.erase(it);
+        else ++it;
+    }
     delete node;
 }
 
-void Graph::addEdge(Node* begin, Node* end) {
+void Graph::addEdge(Node* begin, Node* end, int weight) {
     if (!begin || !end) return;
-    if (!hasNode(begin) || !hasNode(end)) return;
+    if (nodes.find(begin) == nodes.end()) return;
+    if (nodes.find(end) == nodes.end()) return;
+
     begin->addNeighbour(end);
     end->addNeighbour(begin);
-    edges.insert({ begin, end });
+    edges.insert(Edge(begin, end, weight));
 }
 
-bool Graph::hasNode(Node* node) const {
-    return nodes.find(node) != nodes.end();
+void Graph::removeEdge(Node* begin, Node* end) {
+    if (!begin || !end) return;
+    begin->removeNeighbour(end);
+    end->removeNeighbour(begin);
+
+    for (auto it = edges.begin(); it != edges.end(); ++it) {
+        if ((it->from == begin && it->to == end) ||
+            (it->from == end && it->to == begin)) {
+            edges.erase(it);
+            break;
+        }
+    }
 }
 
-bool Graph::hasEdge(Node* begin, Node* end) const {
-    return edges.find({ begin, end }) != edges.end() ||
-        edges.find({ end, begin }) != edges.end();
+bool Graph::hasNode(Node* node) const { return nodes.find(node) != nodes.end(); }
+bool Graph::hasEdge(Node* begin, Node* end) const { return getWeight(begin, end) != 0; }
+
+int Graph::getWeight(Node* begin, Node* end) const {
+    for (const Edge& e : edges) {
+        if ((e.from == begin && e.to == end) || (e.from == end && e.to == begin)) {
+            return e.weight;
+        }
+    }
+    return 0;
 }
 
 node_iterator Graph::begin() const { return nodes.begin(); }
 node_iterator Graph::end() const { return nodes.end(); }
 size_t Graph::getNodeCount() const { return nodes.size(); }
 
-vector<vector<Node*>> Graph::findConnectedComponents() {
-    vector<vector<Node*>> components;
+// ========== НОВЫЕ МЕТОДЫ ==========
+
+vector<Graph> Graph::getConnectedComponents() const {
+    vector<Graph> components;
     set<Node*> visited;
 
     for (Node* start : nodes) {
         if (visited.find(start) != visited.end()) continue;
 
-        // BFS ��� ����� ����������
-        vector<Node*> component;
+        Graph component;
         queue<Node*> q;
         q.push(start);
         visited.insert(start);
+        component.addNode(start);
 
         while (!q.empty()) {
-            Node* current = q.front(); q.pop();
-            component.push_back(current);
+            Node* current = q.front();
+            q.pop();
+
             for (node_iterator it = current->nb_begin(); it != current->nb_end(); ++it) {
-                if (visited.find(*it) == visited.end()) {
-                    visited.insert(*it);
-                    q.push(*it);
+                Node* neighbour = *it;
+                component.addNode(neighbour);
+                component.addEdge(current, neighbour, getWeight(current, neighbour));
+
+                if (visited.find(neighbour) == visited.end()) {
+                    visited.insert(neighbour);
+                    q.push(neighbour);
                 }
             }
         }
@@ -133,36 +208,86 @@ vector<vector<Node*>> Graph::findConnectedComponents() {
     return components;
 }
 
-void Graph::saveComponent(const vector<Node*>& component, const string& filename) const {
+void Graph::saveToFile(const string& filename) const {
     ofstream file(filename);
-    set<pair<int, int>> edgesWritten;
+    if (!file.is_open()) return;
 
-    for (Node* node : component) {
-        int from = stoi(node->getName());
+    file << "Source\tTarget" << endl;
+
+    set<pair<Node*, Node*>> writtenEdges;
+
+    for (Node* node : nodes) {
         for (node_iterator it = node->nb_begin(); it != node->nb_end(); ++it) {
-            int to = stoi((*it)->getName());
-            if (edgesWritten.find({ from, to }) == edgesWritten.end() &&
-                edgesWritten.find({ to, from }) == edgesWritten.end()) {
-                file << from << "\t" << to << endl;
-                edgesWritten.insert({ from, to });
+            Node* neighbour = *it;
+            if (writtenEdges.find({ node, neighbour }) == writtenEdges.end() &&
+                writtenEdges.find({ neighbour, node }) == writtenEdges.end()) {
+                file << node->getName() << "\t" << neighbour->getName() << endl;
+                writtenEdges.insert({ node, neighbour });
             }
         }
     }
     file.close();
 }
+void Graph::saveConnectedComponents() const {
+    set<Node*> visited;
+    int compNum = 1;
 
+    for (Node* start : nodes) {
+        if (visited.find(start) != visited.end()) continue;
+
+        string filename = "component_" + to_string(compNum) + ".txt";
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cerr << "Не удалось создать файл " << filename << endl;
+            return;
+        }
+
+        file << "Source\tTarget" << endl;
+
+        queue<Node*> q;
+        q.push(start);
+        visited.insert(start);
+
+        set<pair<Node*, Node*>> writtenEdges;
+
+        while (!q.empty()) {
+            Node* current = q.front();
+            q.pop();
+
+            for (node_iterator it = current->nb_begin(); it != current->nb_end(); ++it) {
+                Node* neighbour = *it;
+
+                if (writtenEdges.find({ current, neighbour }) == writtenEdges.end() &&
+                    writtenEdges.find({ neighbour, current }) == writtenEdges.end()) {
+                    file << current->getName() << "\t" << neighbour->getName() << endl;
+                    writtenEdges.insert({ current, neighbour });
+                }
+
+                if (visited.find(neighbour) == visited.end()) {
+                    visited.insert(neighbour);
+                    q.push(neighbour);
+                }
+            }
+        }
+
+        file.close();
+        cout << "Компонента " << compNum << ": сохранена в " << filename << endl;
+        compNum++;
+    }
+}
 ostream& operator<<(ostream& out, const Graph& graph) {
-    out << "����:\n  ������: " << graph.getNodeCount() << "\n";
+    out << "Граф:\n  Вершин: " << graph.getNodeCount() << "\n";
     for (Node* node : graph) {
         out << "  " << node->getName() << " -> ";
-        for (auto it = node->nb_begin(); it != node->nb_end(); ++it)
+        for (node_iterator it = node->nb_begin(); it != node->nb_end(); ++it)
             out << (*it)->getName() << " ";
         out << "\n";
     }
     return out;
 }
 
-// ---------- Path ----------
+// ========== PATH ==========
+
 Path::Path(const Path& other) : len(other.len) {
     for (int i = 0; i < len; ++i) nodes[i] = other.nodes[i];
 }
@@ -200,7 +325,8 @@ ostream& operator<<(ostream& out, const Path& path) {
     return out;
 }
 
-// ---------- BFS ----------
+// ========== BFS ==========
+
 BFS::BFS(const Graph& agraph) : graph(agraph) {}
 
 bool BFS::connected(Node* begin, Node* end) {
@@ -228,11 +354,7 @@ bool BFS::connected(Node* begin, Node* end) {
 Path BFS::findPath(Node* begin, Node* end) {
     Path path;
     if (!begin || !end) return path;
-    if (begin == end) {
-        path.pushBack(begin);
-        return path;
-    }
-    // ���������: ���������� ������ ����. ��� ��������� ���� ����� map �������.
+    if (begin == end) path.pushBack(begin);
     return path;
 }
 
@@ -263,7 +385,8 @@ int BFS::findDistance(Node* begin, Node* end) {
     return -1;
 }
 
-// ---------- DFS ----------
+// ========== DFS ==========
+
 DFS::DFS(const Graph& agraph) : graph(agraph) {}
 
 bool DFS::connectedRecursive(Node* begin, Node* end, int) {
@@ -298,4 +421,54 @@ Path DFS::findPath(Node* begin, Node* end) {
     set<Node*> seen;
     if (begin && end) findPathRecursive(begin, end, path, seen);
     return path;
+}
+
+// ========== ДЕЙКСТРА ==========
+
+Dijkstra::MarkedNode Dijkstra::PriorityQueue::pop() {
+    MarkedNode mn = nodes.back();
+    nodes.pop_back();
+    return mn;
+}
+
+void Dijkstra::PriorityQueue::push(Node* node, int mark, Node* prev) {
+    auto it = nodes.begin();
+    MarkedNode mn(node, mark, prev);
+    while (it != nodes.end() && mark < it->mark) ++it;
+    if (it == nodes.end()) nodes.push_back(mn);
+    else nodes.insert(it, mn);
+}
+
+Way Dijkstra::unroll(map<Node*, MarkedNode>& visited, Node* begin, Node* curr) {
+    Way way;
+    way.length = visited[curr].mark;
+    while (curr != begin) {
+        way.nodes.push_back(curr);
+        curr = visited[curr].prev;
+    }
+    way.nodes.push_back(begin);
+    reverse(way.nodes.begin(), way.nodes.end());
+    return way;
+}
+
+Way Dijkstra::shortestWay(Node* begin, Node* end) {
+    PriorityQueue pq;
+    pq.push(begin, 0, nullptr);
+    map<Node*, MarkedNode> visited;
+
+    while (!pq.empty()) {
+        MarkedNode next = pq.pop();
+        visited[next.node] = next;
+        if (next.node == end) return unroll(visited, begin, end);
+
+        for (node_iterator it = next.node->nb_begin(); it != next.node->nb_end(); ++it) {
+            int weight = graph.getWeight(next.node, *it);
+            if (weight == 0) weight = 1;
+            int newMark = next.mark + weight;
+            if (visited.find(*it) == visited.end()) {
+                pq.push(*it, newMark, next.node);
+            }
+        }
+    }
+    return Way();
 }
